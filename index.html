@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROWDAWG.ORG</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;}
+:root{--green:#00ff88;--teal:#55ead4;--red:#c5003c;--darkred:#880425;--yellow:#f3e600;--mono:'Share Tech Mono',monospace;}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;cursor:none;}
+#cursor{position:fixed;width:14px;height:14px;border:1px solid var(--green);border-radius:50%;pointer-events:none;z-index:9999;transform:translate(-50%,-50%);}
+#cursor::after{content:'';position:absolute;top:50%;left:50%;width:4px;height:4px;background:var(--green);border-radius:50%;transform:translate(-50%,-50%);}
+#scanlines{position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.1) 3px,rgba(0,0,0,0.1) 4px);pointer-events:none;z-index:100;}
+/* ── INTRO SYSTEM ──
+   Everything is visible immediately on load.
+   #intro-overlay = the full black+text screen (z:200, absorbs clicks).
+   On first interaction: overlay fades out entirely, title stays, subtitle+hint gone.
+   On first drive: title fades, 3D letters take over.
+*/
+#intro-overlay{
+  position:fixed;inset:0;background:#000;z-index:200;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;
+  transition:opacity 1.2s ease;
+}
+#intro-overlay.fade{opacity:0;pointer-events:none;}
+#intro-logo{
+  font-family:'Orbitron',monospace;
+  font-size:clamp(70px,15vw,130px);
+  font-weight:900;color:#000;
+  -webkit-text-stroke:1.5px var(--green);
+  letter-spacing:10px;
+  animation:introReveal 0.9s ease 0.2s forwards;
+  opacity:0;white-space:nowrap;
+}
+@keyframes introReveal{from{opacity:0;letter-spacing:40px;}to{opacity:1;letter-spacing:10px;}}
+#intro-sub{
+  font-family:var(--mono);font-size:12px;color:var(--green);
+  letter-spacing:6px;margin-top:18px;
+  opacity:0;animation:fadeUp 0.6s ease 0.9s forwards;
+}
+#intro-hint{
+  position:absolute;bottom:44px;
+  font-family:var(--mono);font-size:10px;
+  color:rgba(0,255,136,0.45);letter-spacing:3px;
+  opacity:0;animation:fadeUp 0.4s ease 1.6s forwards, blink 1.2s ease 2s infinite;
+}
+/* Floating title: stays over world after overlay fades, then fades on drive */
+#intro-title{
+  position:fixed;top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  z-index:190;text-align:center;
+  pointer-events:none;
+  opacity:0;  /* hidden until overlay fades */
+  transition:opacity 0.8s ease;
+}
+#intro-title.reveal{opacity:1;}
+#intro-title.drive-away{opacity:0;}
+#float-logo{
+  font-family:'Orbitron',monospace;
+  font-size:clamp(70px,15vw,130px);
+  font-weight:900;color:#000;
+  -webkit-text-stroke:1.5px var(--green);
+  letter-spacing:10px;white-space:nowrap;
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+@keyframes blink{0%,100%{opacity:0.4;}50%{opacity:1;}}
+#gameCanvas{position:fixed;top:0;left:0;}
+#warpCanvas{position:fixed;top:0;left:0;pointer-events:none;z-index:150;opacity:0;}
+#hud{position:fixed;inset:0;pointer-events:none;z-index:90;font-family:var(--mono);}
+.hud-box{background:rgba(0,0,0,0.72);border:1px solid rgba(0,255,136,0.16);padding:9px 14px;line-height:2;letter-spacing:1px;}
+#hud-tl{position:absolute;top:20px;left:20px;font-size:10px;color:rgba(0,255,136,0.6);}
+#hud-tr{position:absolute;top:20px;right:20px;text-align:right;font-size:10px;color:rgba(0,255,136,0.6);}
+#hud-bl{position:absolute;bottom:20px;left:20px;font-size:10px;color:rgba(0,255,136,0.4);}
+#hud-bc{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:10px;color:rgba(0,255,136,0.5);letter-spacing:2px;text-align:center;border:1px solid rgba(0,255,136,0.13);padding:8px 20px;background:rgba(0,0,0,0.72);opacity:0;transition:opacity 0.8s ease;}
+#portal-prompt{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);text-align:center;opacity:0;transition:opacity 0.3s;}
+#portal-prompt.visible{opacity:1;}
+#portal-prompt-name{font-size:17px;font-family:var(--mono);letter-spacing:5px;margin-bottom:10px;}
+#portal-prompt-action{font-size:11px;font-family:var(--mono);letter-spacing:3px;color:rgba(0,255,136,0.65);animation:blink 0.8s infinite;}
+#minimap{position:absolute;bottom:20px;right:20px;width:120px;height:120px;border:1px solid rgba(0,255,136,0.22);background:rgba(0,0,0,0.88);}
+#minimap-label{position:absolute;top:3px;left:0;right:0;text-align:center;font-size:7px;color:rgba(0,255,136,0.4);letter-spacing:2px;}
+</style>
+</head>
+<body>
+<div id="cursor"></div>
+<div id="scanlines"></div>
+<!-- Single overlay: visible immediately, absorbs first click -->
+<div id="intro-overlay">
+  <div id="intro-logo">ROWDAWG</div>
+  <div id="intro-sub">NAVIGATE // EXPLORE // BUILD</div>
+  <div id="intro-hint">▼ PRESS ANY KEY OR CLICK TO BEGIN</div>
+</div>
+<!-- Floating title: same text, revealed when overlay fades, hidden when driving -->
+<div id="intro-title">
+  <div id="float-logo">ROWDAWG</div>
+</div>
+<canvas id="gameCanvas"></canvas>
+<canvas id="warpCanvas"></canvas>
+<div id="hud">
+  <div id="hud-tl" class="hud-box">
+    <div id="hud-coord">COORD: 0000, 0000</div>
+    <div id="hud-heading">HEADING: NORTH</div>
+    <div id="hud-speed">SPEED: 0.0</div>
+  </div>
+  <div id="hud-tr" class="hud-box">
+    <div id="nearest-portal">NEAREST: —</div>
+    <div id="nearest-dist">DIST: —</div>
+  </div>
+  <div id="hud-bl" class="hud-box">
+    <div>ROWDAWG.ORG // v1.0</div>
+    <div>PORTALS: 1 / 4 ACTIVE</div>
+  </div>
+  <div id="hud-bc">[ W A S D ] or [ ↑ ↓ ← → ] DRIVE &nbsp;·&nbsp; [ SPACE ] ENTER PORTAL &nbsp;·&nbsp; [ SHIFT ] BOOST</div>
+  <div id="drive-hint" style="position:absolute;bottom:20px;left:50%;transform:translateX(-50%);font-size:12px;font-family:'Share Tech Mono',monospace;color:rgba(0,255,136,0.7);letter-spacing:3px;text-align:center;transition:opacity 0.8s ease;pointer-events:none;z-index:91;opacity:0;">
+    <div style="animation:blink 1s infinite;margin-bottom:6px;">▲ DRIVE FORWARD TO BEGIN ▲</div>
+    <div style="font-size:9px;color:rgba(0,255,136,0.35);letter-spacing:2px;">[ W ] or [ ↑ ]</div>
+  </div>
+  <div id="portal-prompt">
+    <div id="portal-prompt-name"></div>
+    <div id="portal-prompt-action">[ SPACE ] TO ENTER</div>
+  </div>
+  <div id="minimap">
+    <div id="minimap-label">MINIMAP</div>
+    <canvas id="minimapCanvas" width="120" height="108" style="position:absolute;top:12px;left:0;"></canvas>
+  </div>
+</div>
+<script>
+const W=window.innerWidth,H=window.innerHeight;
+const canvas=document.getElementById('gameCanvas');
+const ctx=canvas.getContext('2d');
+canvas.width=W;canvas.height=H;
+const warpCanvas=document.getElementById('warpCanvas');
+const wctx=warpCanvas.getContext('2d');
+warpCanvas.width=W;warpCanvas.height=H;
+const mmCanvas=document.getElementById('minimapCanvas');
+const mctx=mmCanvas.getContext('2d');
+
+const cursorEl=document.getElementById('cursor');
+document.addEventListener('mousemove',e=>{cursorEl.style.left=e.clientX+'px';cursorEl.style.top=e.clientY+'px';});
+
+// ─ WORLD ──────────────────────────────────────────────────
+const WW=3200,WH=3200;
+const ROAD_CX=WW/2,ROAD_W=320;
+const ROAD_L=ROAD_CX-ROAD_W/2,ROAD_R=ROAD_CX+ROAD_W/2;
+// Y-intersection fork geometry
+const FORK_Y=WH*0.60;       // world Y where road splits
+const FORK_SPREAD=420;      // how far left/right branches spread by top of world
+const BRANCH_W=260;         // width of branch roads
+
+// ─ PERSPECTIVE CAMERA ─────────────────────────────────────
+const CAM_BACK=280,CAM_H=160,PITCH=0.38,FOCAL=700;
+// Player starts at bottom of world facing north (angle=-PI/2 = up = decreasing Y)
+const START_Y=WH*0.92+300;  // 300 extra back so full title is readable on load
+let cam={x:WW/2,y:START_Y,angle:-Math.PI/2};
+
+function w2s(wx,wy){
+  const dx=wx-cam.x,dy=wy-cam.y;
+  // Project into camera space: forward = cam.angle direction
+  const cos=Math.cos(cam.angle),sin=Math.sin(cam.angle);
+  const ry= dx*cos+dy*sin;   // forward (positive = ahead of camera)
+  const rx= dx*sin-dy*cos;   // lateral (positive = right)
+  const fwd=ry+CAM_BACK;
+  if(fwd<8)return null;
+  const zd=fwd*Math.cos(PITCH)+CAM_H*Math.sin(PITCH);
+  if(zd<1)return null;
+  const sc=FOCAL/zd;
+  const sx=W/2+rx*sc;
+  const sy=H/2+(CAM_H*Math.cos(PITCH)-fwd*Math.sin(PITCH))*sc+H*0.15;
+  return{x:sx,y:sy,sc};
+}
+
+// ─ PLAYER ─────────────────────────────────────────────────
+const P={
+  x:WW/2,y:START_Y,vx:0,vy:0,
+  angle:-Math.PI/2, // -PI/2 = north = decreasing Y
+  speed:0,maxSpeed:5.5,boostSpeed:10,
+  accel:0.2,friction:0.87,turn:0.048
+};
+const keys={};
+document.addEventListener('keydown',e=>{
+  keys[e.code]=true;
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+});
+document.addEventListener('keyup',e=>{keys[e.code]=false;});
+
+// ─ PHYSICS LETTERS ────────────────────────────────────────
+const LCHARS='ROWDAWG';
+const LSIZE=120;  // letter size; spacing 0.95 calibrated to match intro title width
+const letters=[];
+function initLetters(){
+  letters.length=0;
+  const spacing=LSIZE*0.95;  // wider spacing to match intro title proportions
+  const totalW=(LCHARS.length-1)*spacing;
+  for(let i=0;i<LCHARS.length;i++){
+    letters.push({
+      ch:LCHARS[i],
+      x:WW/2+totalW/2-i*spacing,  // reversed: world-right maps to screen-left
+      y:WH*0.8415,  // fixed world position matching intro title screen size
+      vx:0,vy:0,av:0,angle:0,
+      r:LSIZE*0.46,settled:true,alpha:0  // start invisible, revealed when driving starts
+    });
+  }
+}
+initLetters();
+
+function tickLetters(){
+  // No gravity — letters sit on flat road surface. Just friction + collision.
+  const FR=0.88,AFR=0.88,BNC=0.25;
+  letters.forEach(l=>{
+    if(l.settled)return;
+    l.x+=l.vx; l.y+=l.vy; l.angle+=l.av;
+    l.vx*=FR; l.vy*=FR; l.av*=AFR;
+    // World bounds — soft bounce off edges so letters can't escape
+    const PAD=80;
+    if(l.x<PAD){l.x=PAD;l.vx=Math.abs(l.vx)*BNC;}
+    if(l.x>WW-PAD){l.x=WW-PAD;l.vx=-Math.abs(l.vx)*BNC;}
+    if(l.y<PAD){l.y=PAD;l.vy=Math.abs(l.vy)*BNC;}
+    if(l.y>WH-PAD){l.y=WH-PAD;l.vy=-Math.abs(l.vy)*BNC;}
+    // letter-letter collision
+    letters.forEach(o=>{
+      if(o===l)return;
+      const dx=l.x-o.x,dy=l.y-o.y,d=Math.hypot(dx,dy),mn=l.r+o.r-10;
+      if(d<mn&&d>0.1){
+        const nx=dx/d,ny=dy/d,ov=(mn-d)*0.5;
+        l.x+=nx*ov;l.y+=ny*ov;o.x-=nx*ov;o.y-=ny*ov;
+        const rv=(l.vx-o.vx)*nx+(l.vy-o.vy)*ny;
+        if(rv<0){const imp=rv*0.5;l.vx-=imp*nx;l.vy-=imp*ny;o.vx+=imp*nx;o.vy+=imp*ny;}
+      }
+    });
+    if(Math.abs(l.vx)<0.015&&Math.abs(l.vy)<0.015&&Math.abs(l.av)<0.008)l.settled=true;
+  });
+  // car-letter collision
+  letters.forEach(l=>{
+    const dx=l.x-P.x,dy=l.y-P.y,d=Math.hypot(dx,dy);
+    if(d<l.r+28&&d>0.1){
+      l.settled=false;
+      const nx=dx/d,ny=dy/d,spd=Math.abs(P.speed)+0.5;
+      const imp=(spd+1)*1.4;
+      l.vx+=Math.cos(P.angle)*imp*0.7+nx*imp*0.55;
+      l.vy+=Math.sin(P.angle)*imp*0.7+ny*imp*0.55;
+      l.av+=(Math.random()-0.5)*0.28*spd;
+    }
+  });
+}
+
+// ─ PORTALS ────────────────────────────────────────────────
+const portals=[
+  {id:'mg',label:'MIDDLEGROUND',sub:'meeting point finder',
+   color:'#55ead4',x:WW/2,y:WH*0.48,r:62,active:true,
+   url:'https://middleground.rowdawg.org',draw:drawMG},
+  {id:'p2',label:'PROJECT_02',sub:'coming soon',
+   color:'#c5003c',x:WW/2,y:WH*0.26,r:56,active:false,url:null,draw:drawLocked},
+  {id:'p3',label:'PROJECT_03',sub:'coming soon',
+   color:'#f3e600',x:WW/2-FORK_SPREAD*0.85,y:WH*0.32,r:50,active:false,url:null,draw:drawLocked},
+  {id:'p4',label:'PROJECT_04',sub:'coming soon',
+   color:'#f3e600',x:WW/2+FORK_SPREAD*0.85,y:WH*0.32,r:50,active:false,url:null,draw:drawLocked}
+];
+
+// ─ CITY BLOCKS ────────────────────────────────────────────
+const blocks=[];
+function mb(x,y,w,h){blocks.push({x,y,w,h});}
+// Main road blocks (south stretch)
+for(let i=0;i<8;i++){
+  const yy=WH*0.62+i*210;
+  mb(ROAD_L-240,yy,185,150+Math.sin(i*1.3)*28);
+  mb(ROAD_L-450,yy+40,120,130);
+  mb(ROAD_R+22,yy,185,140+Math.cos(i*1.1)*26);
+  mb(ROAD_R+225,yy+35,120,140);
+}
+// Center/north branch blocks
+for(let i=0;i<7;i++){
+  const yy=WH*0.18+i*180;
+  mb(ROAD_CX-BRANCH_W/2-200,yy,160,140+Math.sin(i*1.7)*22);
+  mb(ROAD_CX+BRANCH_W/2+22,yy,160,135+Math.cos(i*1.4)*20);
+}
+// Left branch blocks (angled NW)
+for(let i=0;i<5;i++){
+  const bx=ROAD_CX-FORK_SPREAD;
+  const yy=WH*0.20+i*200;
+  mb(bx-BRANCH_W/2-190,yy,150,130+Math.sin(i*2)*18);
+  mb(bx+BRANCH_W/2+22,yy+30,140,120);
+}
+// Right branch blocks (angled NE)
+for(let i=0;i<5;i++){
+  const bx=ROAD_CX+FORK_SPREAD;
+  const yy=WH*0.20+i*200;
+  mb(bx-BRANCH_W/2-170,yy+20,140,125);
+  mb(bx+BRANCH_W/2+18,yy,150,130+Math.cos(i*1.9)*18);
+}
+
+// ─ STREET LIGHTS ──────────────────────────────────────────
+const slights=[];
+// Main road lights
+for(let y=WH*0.62;y<WH-100;y+=260){
+  slights.push({x:ROAD_L-28,y,s:'L'});
+  slights.push({x:ROAD_R+28,y,s:'R'});
+}
+// Center branch lights
+for(let y=WH*0.18;y<WH*0.60;y+=260){
+  slights.push({x:ROAD_CX-BRANCH_W/2-28,y,s:'L'});
+  slights.push({x:ROAD_CX+BRANCH_W/2+28,y,s:'R'});
+}
+// Left branch lights
+for(let i=0;i<5;i++){
+  const bx=ROAD_CX-FORK_SPREAD;
+  const yy=WH*0.20+i*220;
+  slights.push({x:bx-BRANCH_W/2-26,y:yy,s:'L'});
+  slights.push({x:bx+BRANCH_W/2+26,y:yy,s:'R'});
+}
+// Right branch lights
+for(let i=0;i<5;i++){
+  const bx=ROAD_CX+FORK_SPREAD;
+  const yy=WH*0.20+i*220;
+  slights.push({x:bx-BRANCH_W/2-26,y:yy,s:'L'});
+  slights.push({x:bx+BRANCH_W/2+26,y:yy,s:'R'});
+}
+
+// ─ DIRECTION ARROWS ───────────────────────────────────────
+const dArrows=[];
+for(let y=START_Y-320;y>WH*0.48+100;y-=270)dArrows.push({x:WW/2,y});
+
+// ─ DRAW FNS ───────────────────────────────────────────────
+function drawMG(sx,sy,sc,p,pulse){
+  const r=p.r*sc,c=p.color;
+  ctx.save();
+  ctx.strokeStyle=c;ctx.lineWidth=1.2;
+  ctx.globalAlpha=0.2+0.08*Math.sin(pulse);
+  ctx.beginPath();ctx.arc(sx,sy,r*1.28,0,Math.PI*2);ctx.stroke();
+  ctx.globalAlpha=0.55+0.15*Math.sin(pulse*1.3);
+  ctx.beginPath();ctx.arc(sx,sy,r,0,Math.PI*2);ctx.stroke();
+  ctx.globalAlpha=0.07+0.03*Math.sin(pulse);
+  ctx.fillStyle=c;ctx.beginPath();ctx.arc(sx,sy,r,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;
+  ctx.strokeStyle=c;ctx.lineWidth=0.5;ctx.globalAlpha=0.16;
+  for(let i=-3;i<=3;i++){
+    ctx.beginPath();ctx.moveTo(sx-r+3,sy+i*r/3.5);ctx.lineTo(sx+r-3,sy+i*r/3.5);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(sx+i*r/3.5,sy-r+3);ctx.lineTo(sx+i*r/3.5,sy+r-3);ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  const a1x=sx-r*0.4,a1y=sy-r*0.3,a2x=sx+r*0.4,a2y=sy+r*0.3;
+  ctx.fillStyle='#00ff88';ctx.beginPath();ctx.arc(a1x,a1y,r*0.1,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(a2x,a2y,r*0.1,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#ff6b2b';ctx.beginPath();ctx.arc(sx,sy,r*0.13,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#00ff88';ctx.globalAlpha=0.5;ctx.lineWidth=0.9;ctx.setLineDash([3,2]);
+  ctx.beginPath();ctx.moveTo(a1x,a1y);ctx.lineTo(sx,sy);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(a2x,a2y);ctx.lineTo(sx,sy);ctx.stroke();
+  ctx.setLineDash([]);ctx.restore();
+}
+function drawLocked(sx,sy,sc,p,pulse){
+  const r=p.r*sc,c=p.color;
+  ctx.save();
+  ctx.strokeStyle=c;ctx.lineWidth=1;
+  ctx.globalAlpha=0.1+0.03*Math.sin(pulse);
+  ctx.beginPath();ctx.arc(sx,sy,r*1.22,0,Math.PI*2);ctx.stroke();
+  ctx.globalAlpha=0.18;ctx.beginPath();ctx.arc(sx,sy,r,0,Math.PI*2);ctx.stroke();
+  ctx.globalAlpha=0.025;ctx.fillStyle=c;ctx.beginPath();ctx.arc(sx,sy,r,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=0.13;ctx.fillStyle=c;
+  ctx.font=`${r*0.55}px 'Share Tech Mono'`;ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('⬡',sx,sy);ctx.restore();
+}
+function drawPortalLabel(sx,sy,sc,p){
+  ctx.save();
+  const r=p.r*sc;
+  ctx.font=`bold ${Math.max(9,Math.min(14,12*sc))}px 'Share Tech Mono'`;
+  ctx.textAlign='center';ctx.textBaseline='top';
+  ctx.fillStyle=p.color;ctx.globalAlpha=p.active?0.95:0.28;
+  ctx.fillText(p.label,sx,sy+r+10*sc);
+  ctx.font=`${Math.max(8,Math.min(11,10*sc))}px 'Share Tech Mono'`;
+  ctx.globalAlpha=p.active?0.5:0.13;
+  ctx.fillText(p.sub,sx,sy+r+24*sc);ctx.restore();
+}
+
+// ─ GROUND / SKY ───────────────────────────────────────────
+function drawGround(){
+  const hz=H*0.44;
+  // sky
+  ctx.fillStyle='#000408';ctx.fillRect(0,0,W,hz);
+  // horizon glow line
+  ctx.strokeStyle='rgba(0,255,136,0.06)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(0,hz);ctx.lineTo(W,hz);ctx.stroke();
+  // distant city silhouette
+  ctx.fillStyle='#020b05';
+  for(let i=0;i<36;i++){
+    const bx=(i/36)*W;
+    const bw=W/36+1;
+    const bh=18+((i*173+7)%55);
+    ctx.fillRect(bx,hz-bh,bw+1,bh);
+  }
+  // window dots on silhouette
+  ctx.fillStyle='rgba(0,255,136,0.07)';
+  for(let i=0;i<36;i++){
+    const bx=(i/36)*W,bw=W/36,bh=18+((i*173+7)%55);
+    for(let wy=hz-bh+4;wy<hz-3;wy+=8)
+      for(let wx=bx+3;wx<bx+bw-2;wx+=7)
+        if((i+Math.floor(wy/8))%3!==0)ctx.fillRect(wx,wy,2,3);
+  }
+  // ground fill
+  ctx.fillStyle='#020806';ctx.fillRect(0,hz,W,H-hz);
+  // perspective grid
+  const vx=W/2;
+  ctx.strokeStyle='rgba(0,255,136,0.042)';ctx.lineWidth=0.7;
+  for(let d=0;d<20;d++){
+    const gy=hz+(H-hz)*Math.pow(d/20,0.65);
+    ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(W,gy);ctx.stroke();
+  }
+  ctx.strokeStyle='rgba(0,255,136,0.038)';
+  for(let i=-14;i<=14;i++){
+    const bx=vx+i*(W/11);
+    ctx.beginPath();ctx.moveTo(vx,hz);ctx.lineTo(bx,H);ctx.stroke();
+  }
+}
+
+function drawRoad(){
+  // ── Main straight road (south of fork) ──
+  const nL=w2s(ROAD_L,P.y+20),nR=w2s(ROAD_R,P.y+20);
+  const fkL=w2s(ROAD_L,FORK_Y),fkR=w2s(ROAD_R,FORK_Y);
+  if(nL&&nR&&fkL&&fkR){
+    ctx.fillStyle='#040d06';
+    ctx.beginPath();ctx.moveTo(nL.x,nL.y);ctx.lineTo(nR.x,nR.y);
+    ctx.lineTo(fkR.x,fkR.y);ctx.lineTo(fkL.x,fkL.y);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,0.28)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(nL.x,nL.y);ctx.lineTo(fkL.x,fkL.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(nR.x,nR.y);ctx.lineTo(fkR.x,fkR.y);ctx.stroke();
+    const nC=w2s(WW/2,P.y+20),fkC=w2s(WW/2,FORK_Y);
+    if(nC&&fkC){
+      ctx.strokeStyle='rgba(0,255,136,0.12)';ctx.lineWidth=1;ctx.setLineDash([12,10]);
+      ctx.beginPath();ctx.moveTo(nC.x,nC.y);ctx.lineTo(fkC.x,fkC.y);ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  // ── Fork junction fill (widen) ──
+  const topY=FORK_Y-220;
+  const jTL=w2s(ROAD_L-BRANCH_W*0.3,topY),jTR=w2s(ROAD_R+BRANCH_W*0.3,topY);
+  if(fkL&&fkR&&jTL&&jTR){
+    ctx.fillStyle='#040d06';
+    ctx.beginPath();ctx.moveTo(fkL.x,fkL.y);ctx.lineTo(fkR.x,fkR.y);
+    ctx.lineTo(jTR.x,jTR.y);ctx.lineTo(jTL.x,jTL.y);ctx.closePath();ctx.fill();
+  }
+  // ── Center/north branch (PROJECT_02) ──
+  const cnL=w2s(ROAD_CX-BRANCH_W/2,FORK_Y),cnR=w2s(ROAD_CX+BRANCH_W/2,FORK_Y);
+  const cnfL=w2s(ROAD_CX-BRANCH_W/2,0),cnfR=w2s(ROAD_CX+BRANCH_W/2,0);
+  if(cnL&&cnR&&cnfL&&cnfR){
+    ctx.fillStyle='#040d06';
+    ctx.beginPath();ctx.moveTo(cnL.x,cnL.y);ctx.lineTo(cnR.x,cnR.y);
+    ctx.lineTo(cnfR.x,cnfR.y);ctx.lineTo(cnfL.x,cnfL.y);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,0.22)';ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(cnL.x,cnL.y);ctx.lineTo(cnfL.x,cnfL.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(cnR.x,cnR.y);ctx.lineTo(cnfR.x,cnfR.y);ctx.stroke();
+    const cnC=w2s(ROAD_CX,FORK_Y),cnfC=w2s(ROAD_CX,0);
+    if(cnC&&cnfC){
+      ctx.strokeStyle='rgba(0,255,136,0.1)';ctx.lineWidth=1;ctx.setLineDash([10,9]);
+      ctx.beginPath();ctx.moveTo(cnC.x,cnC.y);ctx.lineTo(cnfC.x,cnfC.y);ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  // ── Left branch (PROJECT_03) - angles NW ──
+  const lbCX=ROAD_CX-FORK_SPREAD;
+  const lbTopY=WH*0.18;
+  const lbL=w2s(lbCX-BRANCH_W/2,lbTopY),lbR=w2s(lbCX+BRANCH_W/2,lbTopY);
+  const lbfL=w2s(ROAD_L-BRANCH_W*0.1,FORK_Y),lbfR=w2s(ROAD_R-ROAD_W*0.2,FORK_Y);
+  if(lbL&&lbR&&lbfL&&lbfR){
+    ctx.fillStyle='#040d06';
+    ctx.beginPath();ctx.moveTo(lbfL.x,lbfL.y);ctx.lineTo(lbfR.x,lbfR.y);
+    ctx.lineTo(lbR.x,lbR.y);ctx.lineTo(lbL.x,lbL.y);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,0.2)';ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(lbfL.x,lbfL.y);ctx.lineTo(lbL.x,lbL.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(lbfR.x,lbfR.y);ctx.lineTo(lbR.x,lbR.y);ctx.stroke();
+  }
+  // ── Right branch (PROJECT_04) - angles NE ──
+  const rbCX=ROAD_CX+FORK_SPREAD;
+  const rbTopY=WH*0.18;
+  const rbL=w2s(rbCX-BRANCH_W/2,rbTopY),rbR=w2s(rbCX+BRANCH_W/2,rbTopY);
+  const rbfL=w2s(ROAD_L+ROAD_W*0.2,FORK_Y),rbfR=w2s(ROAD_R+BRANCH_W*0.1,FORK_Y);
+  if(rbL&&rbR&&rbfL&&rbfR){
+    ctx.fillStyle='#040d06';
+    ctx.beginPath();ctx.moveTo(rbfL.x,rbfL.y);ctx.lineTo(rbfR.x,rbfR.y);
+    ctx.lineTo(rbR.x,rbR.y);ctx.lineTo(rbL.x,rbL.y);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,0.2)';ctx.lineWidth=1.2;
+    ctx.beginPath();ctx.moveTo(rbfL.x,rbfL.y);ctx.lineTo(rbL.x,rbL.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(rbfR.x,rbfR.y);ctx.lineTo(rbR.x,rbR.y);ctx.stroke();
+  }
+}
+
+function drawBlocks(){
+  const sorted=[...blocks].sort((a,b)=>{
+    const da=Math.hypot(a.x+a.w/2-P.x,a.y+a.h/2-P.y);
+    const db=Math.hypot(b.x+b.w/2-P.x,b.y+b.h/2-P.y);
+    return db-da;
+  });
+  sorted.forEach(b=>{
+    const cs=[w2s(b.x,b.y),w2s(b.x+b.w,b.y),w2s(b.x+b.w,b.y+b.h),w2s(b.x,b.y+b.h)];
+    if(cs.some(c=>!c))return;
+    if(cs.every(c=>c.y<-20||c.y>H+20))return;
+    const avgSc=(cs[0].sc+cs[1].sc+cs[2].sc+cs[3].sc)/4;
+    const roofH=Math.max(6,b.h*0.2*avgSc);
+    // footprint
+    ctx.fillStyle='#050f08';
+    ctx.beginPath();cs.forEach((c,i)=>i?ctx.lineTo(c.x,c.y):ctx.moveTo(c.x,c.y));
+    ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,0.1)';ctx.lineWidth=0.7;ctx.stroke();
+    // front face
+    ctx.fillStyle='#040c06';
+    ctx.beginPath();
+    ctx.moveTo(cs[2].x,cs[2].y);ctx.lineTo(cs[3].x,cs[3].y);
+    ctx.lineTo(cs[3].x,cs[3].y-roofH);ctx.lineTo(cs[2].x,cs[2].y-roofH);
+    ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,0.07)';ctx.lineWidth=0.5;ctx.stroke();
+    // roof
+    ctx.fillStyle='#060f08';
+    ctx.beginPath();cs.forEach((c,i)=>i?ctx.lineTo(c.x,c.y-roofH):ctx.moveTo(c.x,c.y-roofH));
+    ctx.closePath();ctx.fill();
+    ctx.strokeStyle='rgba(0,255,136,0.12)';ctx.lineWidth=0.6;ctx.stroke();
+    // windows on front face
+    ctx.fillStyle='rgba(0,255,136,0.17)';
+    const fw=Math.abs(cs[2].x-cs[3].x),fh=roofH*0.7;
+    if(fw>10&&fh>5){
+      const nc=Math.max(1,Math.floor(fw/13)),nr=Math.max(1,Math.floor(fh/9));
+      for(let rr=0;rr<nr;rr++)for(let cc=0;cc<nc;cc++){
+        if((rr+cc)%3!==0){
+          const wx=cs[3].x+(cc+0.5)*(fw/nc);
+          const wy=cs[3].y-roofH*0.9+(rr+0.5)*(fh/nr);
+          ctx.fillRect(wx-1.5,wy-2,3,3);
+        }
+      }
+    }
+  });
+}
+
+function drawStreetLights(){
+  slights.forEach(l=>{
+    const base=w2s(l.x,l.y);if(!base)return;
+    const armX=l.s==='L'?l.x+20:l.x-20;
+    const arm=w2s(armX,l.y);
+    const ph=base.sc*55;
+    ctx.strokeStyle='rgba(0,255,136,0.22)';ctx.lineWidth=Math.max(1,base.sc*2.2);
+    ctx.beginPath();ctx.moveTo(base.x,base.y);ctx.lineTo(base.x,base.y-ph);ctx.stroke();
+    if(arm){
+      ctx.beginPath();ctx.moveTo(base.x,base.y-ph);ctx.lineTo(arm.x,arm.y-ph+base.sc*8);ctx.stroke();
+      const ba=0.55+0.2*Math.sin(t*0.5+l.y*0.01);
+      ctx.fillStyle=`rgba(0,255,136,${ba})`;
+      ctx.beginPath();ctx.arc(arm.x,arm.y-ph+base.sc*8,Math.max(2,base.sc*2.8),0,Math.PI*2);ctx.fill();
+    }
+  });
+}
+
+function drawArrows(){
+  dArrows.forEach(a=>{
+    const sp=w2s(a.x,a.y);if(!sp)return;
+    if(sp.y<H*0.3||sp.y>H*0.88)return;
+    const alpha=Math.max(0,Math.min(0.65,1-Math.abs(P.y-a.y)/480))*(0.5+0.5*Math.sin(t*3.2));
+    if(alpha<0.02)return;
+    const s=Math.max(0.6,sp.sc*22);
+    ctx.save();ctx.globalAlpha=alpha;ctx.strokeStyle='#00ff88';ctx.fillStyle='#00ff88';
+    ctx.lineWidth=1;ctx.setLineDash([4,3]);
+    ctx.beginPath();ctx.moveTo(sp.x,sp.y+s*1.3);ctx.lineTo(sp.x,sp.y-s*1.3);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();ctx.moveTo(sp.x,sp.y-s*1.9);ctx.lineTo(sp.x-s*0.75,sp.y-s*0.9);ctx.lineTo(sp.x+s*0.75,sp.y-s*0.9);ctx.closePath();ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawLetters(){
+  letters.forEach(l=>{
+    const sp=w2s(l.x,l.y);if(!sp)return;
+    const fs=Math.max(14,LSIZE*sp.sc*1.05);  // slightly larger to match intro
+    ctx.save();
+    ctx.translate(sp.x,sp.y);ctx.rotate(l.angle);
+    ctx.font=`900 ${fs}px 'Orbitron',monospace`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.strokeStyle=`rgba(0,255,136,${l.alpha*0.88})`;
+    ctx.lineWidth=Math.max(0.6,1.6*sp.sc);
+    ctx.strokeText(l.ch,0,0);
+    ctx.fillStyle=`rgba(0,255,136,${l.alpha*0.07})`;
+    ctx.fillText(l.ch,0,0);
+    ctx.restore();
+  });
+}
+
+function drawPortals(){
+  portals.forEach(p=>{
+    const sp=w2s(p.x,p.y);if(!sp)return;
+    if(sp.y>H*1.12||sp.y<-80)return;
+    const dist=Math.hypot(P.x-p.x,P.y-p.y);
+    // Scale: tiny when far (>700), grows as you approach, full size when inside 120
+    const distClamped=Math.max(0,Math.min(700,dist));
+    const proximity=1-(distClamped/700); // 0=far, 1=close
+    const sc=Math.max(0.16,Math.min(2.0,0.16+proximity*proximity*1.84)); // 2x scale range
+    p.draw(sp.x,sp.y,sc,p,t*1.5+p.x*0.01);
+    drawPortalLabel(sp.x,sp.y,sc,p);
+    if(dist<200&&p.active){
+      ctx.save();ctx.strokeStyle=p.color;ctx.globalAlpha=(1-dist/200)*0.38;
+      ctx.lineWidth=1.5;ctx.setLineDash([5,5]);
+      ctx.beginPath();ctx.arc(sp.x,sp.y,(p.r+26)*sc,0,Math.PI*2);ctx.stroke();
+      ctx.setLineDash([]);ctx.restore();
+    }
+  });
+}
+
+function drawCar(){
+  // Rendered in screen space, fixed at bottom-center
+  const cx=W/2,cy=H*0.70;
+  const CW=58,CL=96;
+  const boost=keys['ShiftLeft']||keys['ShiftRight'];
+  ctx.save();ctx.translate(cx,cy);
+  // ground shadow
+  ctx.fillStyle='rgba(0,255,136,0.05)';
+  ctx.beginPath();ctx.ellipse(0,CL*0.5,CW*0.85,13,0,0,Math.PI*2);ctx.fill();
+  // headlight beams
+  if(Math.abs(P.speed)>0.3){
+    ctx.save();ctx.globalAlpha=Math.min(0.2,Math.abs(P.speed)*0.033);
+    ctx.fillStyle='#00ff88';
+    ctx.beginPath();ctx.moveTo(-CW*0.32,-CL*0.48);ctx.lineTo(-CW*1.3,-CL*1.45);ctx.lineTo(CW*1.3,-CL*1.45);ctx.lineTo(CW*0.32,-CL*0.48);ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
+  // rear bumper
+  ctx.fillStyle='#0a1a12';ctx.strokeStyle='rgba(0,255,136,0.65)';ctx.lineWidth=1.6;
+  ctx.beginPath();ctx.moveTo(-CW*0.54,CL*0.5);ctx.lineTo(CW*0.54,CL*0.5);ctx.lineTo(CW*0.48,CL*0.34);ctx.lineTo(-CW*0.48,CL*0.34);ctx.closePath();ctx.fill();ctx.stroke();
+  // main body
+  ctx.fillStyle='#0d2018';ctx.strokeStyle='rgba(0,255,136,0.62)';ctx.lineWidth=1.6;
+  ctx.beginPath();ctx.moveTo(-CW*0.52,CL*0.38);ctx.lineTo(CW*0.52,CL*0.38);ctx.lineTo(CW*0.45,-CL*0.07);ctx.lineTo(-CW*0.45,-CL*0.07);ctx.closePath();ctx.fill();ctx.stroke();
+  // side stripe
+  ctx.strokeStyle='rgba(0,255,136,0.22)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(-CW*0.52,CL*0.17);ctx.lineTo(CW*0.52,CL*0.17);ctx.stroke();
+  // cabin
+  ctx.fillStyle='#0a1a12';ctx.strokeStyle='rgba(0,255,136,0.48)';ctx.lineWidth=1.3;
+  ctx.beginPath();ctx.moveTo(-CW*0.36,CL*0.06);ctx.lineTo(CW*0.36,CL*0.06);ctx.lineTo(CW*0.29,-CL*0.05);ctx.lineTo(-CW*0.29,-CL*0.05);ctx.closePath();ctx.fill();ctx.stroke();
+  // rear windshield
+  ctx.fillStyle='rgba(0,255,136,0.13)';
+  ctx.beginPath();ctx.moveTo(-CW*0.31,CL*0.05);ctx.lineTo(CW*0.31,CL*0.05);ctx.lineTo(CW*0.25,-CL*0.03);ctx.lineTo(-CW*0.25,-CL*0.03);ctx.closePath();ctx.fill();
+  // taillights - red when reversing, dim otherwise
+  const reversing=keys['ArrowDown']||keys['KeyS'];
+  ctx.fillStyle=reversing?'#ff4444':'#c5003c';
+  ctx.globalAlpha=reversing?1:0.55;
+  ctx.fillRect(-CW*0.52,CL*0.34,CW*0.17,CL*0.11);
+  ctx.fillRect(CW*0.35,CL*0.34,CW*0.17,CL*0.11);
+  ctx.globalAlpha=1;
+  // boost flame
+  if(boost&&Math.abs(P.speed)>1){
+    ctx.save();ctx.globalAlpha=0.5+0.3*Math.sin(t*22);
+    ctx.fillStyle='#00ff88';
+    ctx.beginPath();ctx.moveTo(-CW*0.2,CL*0.51);ctx.lineTo(-CW*0.06,CL*0.51+7+Math.random()*6);ctx.lineTo(CW*0.06,CL*0.51+7+Math.random()*6);ctx.lineTo(CW*0.2,CL*0.51);ctx.closePath();ctx.fill();
+    ctx.restore();
+  }
+  // wheels
+  ctx.fillStyle='#050c08';ctx.strokeStyle='rgba(0,255,136,0.48)';ctx.lineWidth=1.3;
+  const wr=10,wy2=CL*0.42;
+  [[-CW*0.54,wy2],[CW*0.54-wr*2,wy2]].forEach(([wx])=>{
+    ctx.beginPath();ctx.ellipse(wx+wr,wy2,wr,wr*0.7,0,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.strokeStyle='rgba(0,255,136,0.22)';ctx.lineWidth=0.5;
+    ctx.beginPath();ctx.ellipse(wx+wr,wy2,wr*0.52,wr*0.36,0,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='rgba(0,255,136,0.48)';ctx.lineWidth=1.3;
+  });
+  ctx.restore();
+}
+
+function drawMinimap(){
+  const mw=120,mh=108;
+  mctx.clearRect(0,0,mw,mh);
+  mctx.fillStyle='rgba(0,0,0,0.88)';mctx.fillRect(0,0,mw,mh);
+  const sx=mw/WW,sy=mh/WH;
+  mctx.fillStyle='rgba(0,255,136,0.06)';
+  mctx.fillRect(ROAD_L*sx,0,ROAD_W*sx,mh);
+  mctx.strokeStyle='rgba(0,255,136,0.15)';mctx.lineWidth=0.5;
+  mctx.strokeRect(ROAD_L*sx,0,ROAD_W*sx,mh);
+  portals.forEach(p=>{
+    mctx.fillStyle=p.active?p.color:'rgba(255,255,255,0.12)';
+    mctx.globalAlpha=p.active?0.85:0.2;
+    mctx.beginPath();mctx.arc(p.x*sx,p.y*sy,4,0,Math.PI*2);mctx.fill();
+  });
+  mctx.globalAlpha=1;mctx.fillStyle='#00ff88';
+  mctx.beginPath();mctx.arc(P.x*sx,P.y*sy,3.5,0,Math.PI*2);mctx.fill();
+  mctx.strokeStyle='#00ff88';mctx.lineWidth=1.2;mctx.globalAlpha=0.7;
+  mctx.beginPath();mctx.moveTo(P.x*sx,P.y*sy);
+  mctx.lineTo(P.x*sx+Math.cos(P.angle)*11,P.y*sy+Math.sin(P.angle)*11);mctx.stroke();
+  mctx.globalAlpha=1;
+}
+
+// ─ WARP ───────────────────────────────────────────────────
+function triggerWarp(portal){
+  warping=true;warpCanvas.style.opacity=1;
+  const cx=W/2,cy=H/2,pc=portal.color;
+  let frame=0;const total=105;
+  function wf(){
+    frame++;
+    const p=frame/total;
+    const ep=p<0.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+    const imgD=ctx.getImageData(0,0,W,H);
+    const dst=wctx.createImageData(W,H);
+    const src=imgD.data,d=dst.data;
+    const amp=ep*60,freq=5+ep*18,pull=ep*1.15;
+    for(let y2=0;y2<H;y2+=2){
+      for(let x2=0;x2<W;x2+=2){
+        const dx=x2-cx,dy=y2-cy,di2=Math.sqrt(dx*dx+dy*dy),ang=Math.atan2(dy,dx);
+        const wave=Math.sin(di2/freq-frame*0.48)*amp*Math.exp(-di2/(W*0.52));
+        const pl=di2*pull;
+        const sx2=Math.round(x2+Math.cos(ang)*(wave-pl)),sy2=Math.round(y2+Math.sin(ang)*(wave-pl));
+        const si=((Math.max(0,Math.min(H-1,sy2))*W+Math.max(0,Math.min(W-1,sx2)))*4);
+        const di3=(y2*W+x2)*4;
+        d[di3]=src[si];d[di3+1]=src[si+1];d[di3+2]=src[si+2];d[di3+3]=src[si+3];
+        if(x2+1<W){d[di3+4]=src[si];d[di3+5]=src[si+1];d[di3+6]=src[si+2];d[di3+7]=src[si+3];}
+        if(y2+1<H){const di4=((y2+1)*W+x2)*4;d[di4]=src[si];d[di4+1]=src[si+1];d[di4+2]=src[si+2];d[di4+3]=src[si+3];}
+      }
+    }
+    wctx.putImageData(dst,0,0);
+    wctx.save();
+    for(let rr=0;rr<5;rr++){
+      const rp=(ep+rr*0.07)%1;
+      wctx.strokeStyle=pc;wctx.globalAlpha=(1-rp)*0.5;wctx.lineWidth=1.5;
+      wctx.beginPath();wctx.arc(cx,cy,rp*W*0.88,0,Math.PI*2);wctx.stroke();
+    }
+    if(p>0.82){wctx.fillStyle='#000';wctx.globalAlpha=(p-0.82)/0.18;wctx.fillRect(0,0,W,H);}
+    wctx.restore();
+    if(frame<total)requestAnimationFrame(wf);
+    else{
+      if(portal.url)window.location.href=portal.url;
+      else{warping=false;warpCanvas.style.opacity=0;wctx.clearRect(0,0,W,H);}
+    }
+  }
+  requestAnimationFrame(wf);
+}
+
+// ─ LOOP ───────────────────────────────────────────────────
+let t=0,gameStarted=false,warping=false,nearestPortal=null;
+let droveForward=false;
+
+function startGame(){
+  if(gameStarted)return;gameStarted=true;
+  // Fade the overlay — floating title reveals underneath
+  const ov=document.getElementById('intro-overlay');
+  if(ov)ov.classList.add('fade');
+  // Reveal the floating title as overlay fades
+  setTimeout(()=>{
+    const ft=document.getElementById('intro-title');
+    if(ft)ft.classList.add('reveal');
+    // Show drive hint
+    const dh=document.getElementById('drive-hint');
+    if(dh)dh.style.opacity='1';
+  },800);
+}
+
+document.addEventListener('keydown',e=>{
+  startGame();
+  if((e.code==='ArrowUp'||e.code==='KeyW')&&!droveForward){
+    droveForward=true;
+    // Floating title fades in place
+    const ft=document.getElementById('intro-title');
+    if(ft)ft.classList.add('drive-away');
+    // Reveal 3D letters staggered
+    letters.forEach((l,i)=>setTimeout(()=>{l.alpha=1;},i*40));
+    // Swap hints
+    const dh=document.getElementById('drive-hint');
+    if(dh){dh.style.opacity='0';setTimeout(()=>dh.remove(),800);}
+    const hbc=document.getElementById('hud-bc');
+    if(hbc)hbc.style.opacity='1';
+  }
+});
+document.addEventListener('click',()=>startGame());
+setTimeout(startGame,6000);
+
+function angleToHeading(a){
+  const d=((a*180/Math.PI)+90+360)%360;
+  if(d<22.5||d>=337.5)return'NORTH';if(d<67.5)return'NE';if(d<112.5)return'EAST';
+  if(d<157.5)return'SE';if(d<202.5)return'SOUTH';if(d<247.5)return'SW';if(d<292.5)return'WEST';return'NW';
+}
+
+function update(){
+  if(!gameStarted){
+    // World renders but player cant move — just park camera
+    cam.x=P.x;cam.y=P.y;cam.angle=P.angle;return;
+  }
+  if(warping)return;
+  const boost=keys['ShiftLeft']||keys['ShiftRight'];
+  const spd=boost?P.boostSpeed:P.maxSpeed;
+  const up=keys['ArrowUp']||keys['KeyW'],dn=keys['ArrowDown']||keys['KeyS'];
+  const lt=keys['ArrowLeft']||keys['KeyA'],rt=keys['ArrowRight']||keys['KeyD'];
+  if(up)P.speed=Math.min(P.speed+P.accel,spd);
+  else if(dn)P.speed=Math.max(P.speed-P.accel,-spd*0.5);
+  else P.speed*=P.friction;
+  if(Math.abs(P.speed)>0.08){
+    if(lt)P.angle+=P.turn*(P.speed>0?1:-1);
+    if(rt)P.angle-=P.turn*(P.speed>0?1:-1);
+  }
+  P.x=Math.max(50,Math.min(WW-50,P.x+Math.cos(P.angle)*P.speed));
+  P.y=Math.max(50,Math.min(WH-50,P.y+Math.sin(P.angle)*P.speed));
+  const lead=90;
+  const tx=P.x+Math.cos(P.angle)*lead,ty=P.y+Math.sin(P.angle)*lead;
+  cam.x+=(tx-cam.x)*0.09;cam.y+=(ty-cam.y)*0.09;cam.angle+=(P.angle-cam.angle)*0.1;
+  tickLetters();
+  let minD=Infinity;nearestPortal=null;let inRange=false;
+  portals.forEach(p=>{
+    const d=Math.hypot(P.x-p.x,P.y-p.y);
+    if(d<minD){minD=d;nearestPortal=p;}
+    if(d<p.r+110&&p.active)inRange=true;
+  });
+  if(keys['Space']&&inRange&&!warping){
+    const ep=portals.find(p=>Math.hypot(P.x-p.x,P.y-p.y)<p.r+110&&p.active);
+    if(ep)triggerWarp(ep);
+  }
+  document.getElementById('hud-coord').textContent=`COORD: ${Math.round(P.x).toString().padStart(4,'0')}, ${Math.round(P.y).toString().padStart(4,'0')}`;
+  document.getElementById('hud-heading').textContent=`HEADING: ${angleToHeading(P.angle)}`;
+  document.getElementById('hud-speed').textContent=`SPEED: ${Math.abs(P.speed).toFixed(1)}`;
+  if(nearestPortal){
+    document.getElementById('nearest-portal').innerHTML=`<span style="color:${nearestPortal.color}">NEAREST: ${nearestPortal.label}</span>`;
+    document.getElementById('nearest-dist').textContent=`DIST: ${Math.round(minD)} UNITS`;
+  }
+  const prompt=document.getElementById('portal-prompt');
+  if(inRange&&nearestPortal&&nearestPortal.active){
+    prompt.classList.add('visible');
+    document.getElementById('portal-prompt-name').textContent=nearestPortal.label;
+    document.getElementById('portal-prompt-name').style.color=nearestPortal.color;
+  }else prompt.classList.remove('visible');
+}
+
+function loop(){
+  t+=0.016;update();
+  ctx.clearRect(0,0,W,H);
+  drawGround();drawRoad();drawBlocks();drawStreetLights();
+  drawArrows();drawLetters();drawPortals();drawCar();
+  drawMinimap();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

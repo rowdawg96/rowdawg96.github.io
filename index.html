@@ -80,6 +80,48 @@ html,body{width:100%;height:100%;background:#000;overflow:hidden;cursor:none;}
 #portal-prompt-action{font-size:11px;font-family:var(--mono);letter-spacing:3px;color:rgba(0,255,136,0.65);animation:blink 0.8s infinite;}
 #minimap{position:absolute;bottom:20px;right:20px;width:120px;height:120px;border:1px solid rgba(0,255,136,0.22);background:rgba(0,0,0,0.88);}
 #minimap-label{position:absolute;top:3px;left:0;right:0;text-align:center;font-size:7px;color:rgba(0,255,136,0.4);letter-spacing:2px;}
+/* ── MOBILE TOUCH CONTROLS ── */
+#rotate-overlay{
+  position:fixed;inset:0;background:#000;z-index:1500;
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  font-family:var(--mono);color:var(--green);text-align:center;
+}
+#rotate-overlay.show{display:flex;}
+#rotate-icon{font-size:44px;display:inline-block;animation:rotatePulse 2s ease-in-out infinite;}
+@keyframes rotatePulse{0%,100%{transform:rotate(0deg);}50%{transform:rotate(90deg);}}
+#mobile-joystick{
+  position:fixed;bottom:28px;left:28px;width:148px;height:148px;
+  border-radius:50%;background:rgba(0,0,0,0.82);border:1px solid rgba(0,255,136,0.22);
+  touch-action:none;z-index:500;display:none;user-select:none;-webkit-user-select:none;
+}
+#mobile-joystick.show{display:block;}
+.joy-line{position:absolute;background:rgba(0,255,136,0.1);pointer-events:none;}
+#joy-hline{top:calc(50% - 0.5px);left:10%;width:80%;height:1px;}
+#joy-vline{left:calc(50% - 0.5px);top:10%;height:80%;width:1px;}
+.joy-arr{
+  position:absolute;font-family:var(--mono);font-size:13px;
+  color:rgba(0,255,136,0.38);pointer-events:none;
+  user-select:none;-webkit-user-select:none;
+  transition:color 0.07s,text-shadow 0.07s;
+}
+.joy-arr.lit{color:#00ff88;text-shadow:0 0 10px rgba(0,255,136,0.65);}
+#joy-up{top:9px;left:50%;transform:translateX(-50%);}
+#joy-dn{bottom:9px;left:50%;transform:translateX(-50%);}
+#joy-lt{left:9px;top:50%;transform:translateY(-50%);}
+#joy-rt{right:9px;top:50%;transform:translateY(-50%);}
+.joy-dot{
+  position:absolute;top:50%;left:50%;width:12px;height:12px;border-radius:50%;
+  border:1px solid rgba(0,255,136,0.28);background:rgba(0,255,136,0.08);
+  transform:translate(-50%,-50%);pointer-events:none;
+}
+#mobile-portal-btn{
+  position:fixed;top:58%;left:50%;transform:translate(-50%,-50%);
+  display:none;z-index:500;touch-action:manipulation;
+  padding:18px 40px;font-family:var(--mono);font-size:12px;letter-spacing:4px;
+  color:var(--green);background:rgba(0,0,0,0.88);border:1px solid rgba(0,255,136,0.4);
+  text-align:center;animation:blink 0.8s infinite;
+}
+#mobile-portal-btn.show{display:block;}
 </style>
 </head>
 <body>
@@ -95,6 +137,22 @@ html,body{width:100%;height:100%;background:#000;overflow:hidden;cursor:none;}
 <div id="intro-title">
   <div id="float-logo">ROWDAWG</div>
 </div>
+<!-- Mobile controls (isMobile-gated via JS) -->
+<div id="rotate-overlay">
+  <div id="rotate-icon">&#x21BB;</div>
+  <div style="font-size:11px;letter-spacing:4px;">ROTATE DEVICE</div>
+  <div style="font-size:9px;color:rgba(0,255,136,0.45);letter-spacing:3px;margin-top:4px;">LANDSCAPE MODE REQUIRED</div>
+</div>
+<div id="mobile-joystick">
+  <div class="joy-line" id="joy-hline"></div>
+  <div class="joy-line" id="joy-vline"></div>
+  <span class="joy-arr" id="joy-up">&#9650;</span>
+  <span class="joy-arr" id="joy-dn">&#9660;</span>
+  <span class="joy-arr" id="joy-lt">&#9664;</span>
+  <span class="joy-arr" id="joy-rt">&#9654;</span>
+  <div class="joy-dot"></div>
+</div>
+<div id="mobile-portal-btn">[ TAP TO ENTER ]</div>
 <canvas id="gameCanvas"></canvas>
 <canvas id="warpCanvas"></canvas>
 <div id="hud">
@@ -178,6 +236,7 @@ const P={
   accel:0.2,friction:0.87,turn:0.048
 };
 const keys={};
+const isMobile=screen.width<768||window.matchMedia('(hover:none) and (pointer:coarse)').matches;
 document.addEventListener('keydown',e=>{
   keys[e.code]=true;
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
@@ -752,7 +811,7 @@ document.addEventListener('keydown',e=>{
     const dh=document.getElementById('drive-hint');
     if(dh){dh.style.opacity='0';setTimeout(()=>dh.remove(),800);}
     const hbc=document.getElementById('hud-bc');
-    if(hbc)hbc.style.opacity='1';
+    if(hbc&&!isMobile)hbc.style.opacity='1';
   }
 });
 document.addEventListener('click',()=>startGame());
@@ -810,6 +869,10 @@ function update(){
     document.getElementById('portal-prompt-name').textContent=nearestPortal.label;
     document.getElementById('portal-prompt-name').style.color=nearestPortal.color;
   }else prompt.classList.remove('visible');
+  if(isMobile){
+    const mpb=document.getElementById('mobile-portal-btn');
+    if(mpb)mpb.classList.toggle('show',!!(inRange&&nearestPortal&&nearestPortal.active));
+  }
 }
 
 function loop(){
@@ -820,6 +883,74 @@ function loop(){
   drawMinimap();
   requestAnimationFrame(loop);
 }
+
+// ─ MOBILE TOUCH INIT ──────────────────────────────────────
+if(isMobile){
+  document.getElementById('cursor').style.display='none';
+  const joy=document.getElementById('mobile-joystick');
+  const rot=document.getElementById('rotate-overlay');
+  joy.classList.add('show');
+
+  function checkOrient(){rot.classList.toggle('show',window.innerHeight>window.innerWidth);}
+  checkOrient();
+  window.addEventListener('resize',checkOrient);
+
+  const touchMap=new Map(); // touchIdentifier -> keyCode
+  function joyKey(touch){
+    const r=joy.getBoundingClientRect();
+    const dx=touch.clientX-(r.left+r.width/2);
+    const dy=touch.clientY-(r.top+r.height/2);
+    const a=(Math.atan2(dy,dx)*180/Math.PI+360)%360;
+    if(a<45||a>=315)return'KeyD';
+    if(a<135)return'KeyS';
+    if(a<225)return'KeyA';
+    return'KeyW';
+  }
+  function syncLabels(){
+    document.getElementById('joy-up').classList.toggle('lit',!!keys['KeyW']);
+    document.getElementById('joy-dn').classList.toggle('lit',!!keys['KeyS']);
+    document.getElementById('joy-lt').classList.toggle('lit',!!keys['KeyA']);
+    document.getElementById('joy-rt').classList.toggle('lit',!!keys['KeyD']);
+  }
+  function mobileForwardDrive(){
+    if(!droveForward){
+      droveForward=true;
+      const ft=document.getElementById('intro-title');
+      if(ft)ft.classList.add('drive-away');
+      letters.forEach((l,i)=>setTimeout(()=>{l.alpha=1;},i*40));
+      const dh=document.getElementById('drive-hint');
+      if(dh){dh.style.opacity='0';setTimeout(()=>dh.remove(),800);}
+    }
+  }
+  joy.addEventListener('touchstart',e=>{
+    e.preventDefault();
+    startGame();
+    mobileForwardDrive();
+    for(const tc of e.changedTouches){const k=joyKey(tc);touchMap.set(tc.identifier,k);keys[k]=true;}
+    syncLabels();
+  },{passive:false});
+  joy.addEventListener('touchmove',e=>{
+    e.preventDefault();
+    for(const tc of e.changedTouches){
+      const ok=touchMap.get(tc.identifier),nk=joyKey(tc);
+      if(ok&&ok!==nk){keys[ok]=false;keys[nk]=true;touchMap.set(tc.identifier,nk);}
+    }
+    syncLabels();
+  },{passive:false});
+  function joyEnd(e){
+    e.preventDefault();
+    for(const tc of e.changedTouches){const k=touchMap.get(tc.identifier);if(k){keys[k]=false;touchMap.delete(tc.identifier);}}
+    syncLabels();
+  }
+  joy.addEventListener('touchend',joyEnd,{passive:false});
+  joy.addEventListener('touchcancel',joyEnd,{passive:false});
+
+  const mpb=document.getElementById('mobile-portal-btn');
+  mpb.addEventListener('touchstart',e=>{e.preventDefault();keys['Space']=true;},{passive:false});
+  mpb.addEventListener('touchend',e=>{e.preventDefault();keys['Space']=false;},{passive:false});
+  mpb.addEventListener('touchcancel',e=>{e.preventDefault();keys['Space']=false;},{passive:false});
+}
+
 loop();
 </script>
 </body>
